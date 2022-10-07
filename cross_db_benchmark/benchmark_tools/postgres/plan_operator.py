@@ -145,6 +145,18 @@ class PlanOperator(dict):
                 if ts_text in col:
                     col = col.replace(ts_text, '')
 
+                try:
+                    # FIXME:(HACK): ensures that we don't end up capturing any 10.00::numeric as a column.
+                    if "::numeric" in col and float(col.split("::numeric")[0]):
+                        continue
+                except:
+                    pass
+
+                # FIXME(HACK): we fail to pass certain filters because of literals.
+                if col is None or col == "" or col == ")" or col == "NULL" or col.startswith("$"):
+                    # The literal has been wiped out~
+                    continue
+
                 assert filter_columns_regex.search(col) is not None, f"Could not parse {col}"
 
                 for filter_m in filter_columns_regex.finditer(col):
@@ -163,6 +175,9 @@ class PlanOperator(dict):
                         continue
                     # just a type
                     if curr_col.startswith('::'):
+                        continue
+                    # FIXME(HACK):
+                    if curr_col.startswith('$'):
                         continue
                     # just a literal
                     if curr_col.startswith("'") and curr_col.split("'")[-1].startswith("::") \
@@ -218,6 +233,9 @@ class PlanOperator(dict):
             for output_column in output_columns:
                 col_ids = []
                 for c in output_column['columns']:
+                    if c[0] == "ctid":
+                        continue
+
                     try:
                         c_id = self.lookup_column_id(c, column_id_mapping, node_tables, partial_column_name_mapping,
                                                      alias_dict)

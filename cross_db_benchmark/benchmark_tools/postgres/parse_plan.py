@@ -33,7 +33,6 @@ def parse_recursively(parent, plan, offset, depth):
     while i < len(plan):
         # new operator
         if plan[i].strip().startswith('->'):
-
             # create plan node for previous one
             lines_plan_operator = create_node(lines_plan_operator, operators_current_level)
 
@@ -75,13 +74,28 @@ def parse_plan(analyze_plan_tuples, analyze=True, parse=True):
     if isinstance(analyze_plan_tuples[0], tuple) or isinstance(analyze_plan_tuples[0], list):
         plan_steps = [t[0] for t in analyze_plan_tuples]
 
+    ex_time = 0
+    planning_time = 0
+    planning_idx = -1
+
+    special_format = plan_steps[0].startswith("Query Text")
+    if special_format:
+        # This is super untfortunate but this is how it's going to be.
+        # To deal with QSS output.
+        for i, step in enumerate(plan_steps):
+            if step.startswith("elapsed_us:"):
+                ex_time = float(step.split("elapsed_us: ")[1]) / 1000.0
+
+            if step.startswith("txn"):
+                plan_steps = plan_steps[i+1:]
+                break
+
+        analyze = False
+
     # for some reason this is missing in postgres
     # in order to parse this, we add it
     plan_steps[0] = '->  ' + plan_steps[0]
 
-    ex_time = 0
-    planning_time = 0
-    planning_idx = -1
     if analyze:
         for i, plan_step in enumerate(plan_steps):
             plan_step = plan_step.lower()
@@ -208,6 +222,14 @@ def parse_plans(run_stats, min_runtime=100, max_runtime=30000, parse_baseline=Fa
                                              alias_dict=alias_dict)
 
         analyze_plan.plan_runtime = avg_runtime
+        if "query_id" in q:
+            analyze_plan.query_id = q.query_id
+
+        if "txn" in q:
+            analyze_plan.txn = q.txn
+
+        if "start_time" in q:
+            analyze_plan.start_time = q.start_time
 
         def augment_no_workers(p, top_no_workers=0):
             no_workers = p.plan_parameters.get('workers_planned')

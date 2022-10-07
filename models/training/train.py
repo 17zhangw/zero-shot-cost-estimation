@@ -14,6 +14,7 @@ from models.training.checkpoint import save_checkpoint, load_checkpoint, save_cs
 from models.training.metrics import MAPE, RMSE, QError
 from models.training.utils import batch_to, flatten_dict, find_early_stopping_metric
 from models.zero_shot_models.specific_models.model import zero_shot_models
+import gc
 
 
 def train_epoch(epoch_stats, train_loader, model, optimizer, max_epoch_tuples, custom_batch_to=batch_to):
@@ -50,7 +51,7 @@ def train_epoch(epoch_stats, train_loader, model, optimizer, max_epoch_tuples, c
     epoch_stats.update(train_time=time.perf_counter() - train_start_t, mean_loss=mean_loss, mean_rmse=mean_rmse)
 
 
-def validate_model(val_loader, model, epoch=0, epoch_stats=None, metrics=None, max_epoch_tuples=None,
+def validate_model(val_loader, val_set, model, epoch=0, epoch_stats=None, metrics=None, max_epoch_tuples=None,
                    custom_batch_to=batch_to, verbose=False, log_all_queries=False):
     model.eval()
 
@@ -60,6 +61,7 @@ def validate_model(val_loader, model, epoch=0, epoch_stats=None, metrics=None, m
         preds = []
         probs = []
         sample_idxs = []
+        val_feats = {'start_time': [], 'query_id': [], 'plan_runtime': [], 'txn': []}
 
         # evaluate test set using model
         test_start_t = time.perf_counter()
@@ -69,8 +71,20 @@ def validate_model(val_loader, model, epoch=0, epoch_stats=None, metrics=None, m
                 break
 
             val_num_tuples += val_loader.batch_size
-
             input_model, label, sample_idxs_batch = custom_batch_to(batch, model.device, model.label_norm)
+            if val_set is not None:
+                for idx in sample_idxs_batch:
+                    if "start_time" in val_set[idx][1]:
+                        val_feats["start_time"].append(val_set[idx][1].start_time)
+
+                    if "query_id" in val_set[idx][1]:
+                        val_feats["query_id"].append(val_set[idx][1].query_id)
+
+                    if "plan_runtime" in val_set[idx][1]:
+                        val_feats["plan_runtime"].append(val_set[idx][1].plan_runtime)
+
+                    if "txn" in val_set[idx][1]:
+                        val_feats["txn"].append(val_set[idx][1].txn)
             sample_idxs += sample_idxs_batch
             output = model(input_model)
 
@@ -105,6 +119,10 @@ def validate_model(val_loader, model, epoch=0, epoch_stats=None, metrics=None, m
             epoch_stats.update(val_labels=[float(f) for f in labels])
             epoch_stats.update(val_preds=[float(f) for f in preds])
             epoch_stats.update(val_sample_idxs=sample_idxs)
+            epoch_stats.update(val_start_time=val_feats["start_time"])
+            epoch_stats.update(val_query_id=val_feats["query_id"])
+            epoch_stats.update(val_plan_runtime=val_feats["plan_runtime"])
+            epoch_stats.update(val_txn=val_feats["txn"])
 
         # save best model for every metric
         any_best_metric = False
@@ -174,7 +192,7 @@ def train_model(workload_runs,
 
     # create a dataset
     loss_class_name = final_mlp_kwargs['loss_class_name']
-    label_norm, feature_statistics, train_loader, val_loader, test_loaders = \
+    label_norm, feature_statistics, train_loader, val_loader, test_loaders, test_sets = \
         create_dataloader(workload_runs, test_workload_runs, statistics_file, plan_featurization_name, database,
                           val_ratio=0.15, batch_size=batch_size, shuffle=True, num_workers=num_workers,
                           pin_memory=False, limit_queries=limit_queries,
@@ -197,7 +215,7 @@ def train_model(workload_runs,
                                        **model_kwargs)
     # move to gpu
     model = model.to(model.device)
-    print(model)
+    print(model, model.device)
     optimizer = opt.__dict__[optimizer_class_name](model.parameters(), **optimizer_kwargs)
 
     csv_stats, epochs_wo_improvement, epoch, model, optimizer, metrics, finished = \
@@ -213,7 +231,7 @@ def train_model(workload_runs,
         # try:
         train_epoch(epoch_stats, train_loader, model, optimizer, max_epoch_tuples)
 
-        any_best_metric = validate_model(val_loader, model, epoch=epoch, epoch_stats=epoch_stats, metrics=metrics,
+        any_best_metric = validate_model(val_loader, None, model, epoch=epoch, epoch_stats=epoch_stats, metrics=metrics,
                                          max_epoch_tuples=max_epoch_tuples)
         epoch_stats.update(epoch=epoch, epoch_time=time.perf_counter() - epoch_start_time)
 
@@ -264,16 +282,20 @@ def train_model(workload_runs,
 
     # if we are not doing hyperparameter search, evaluate test set
     if trial is None and test_loaders is not None:
+        del train_loader, val_loader
+        gc.collect()
+        gc.collect()
+
         if not (target_dir is None or filename_model is None):
             assert len(target_test_csv_paths) == len(test_loaders)
-            for test_path, test_loader in zip(target_test_csv_paths, test_loaders):
+            for i, (test_path, test_loader) in enumerate(zip(target_test_csv_paths, test_loaders)):
                 print(f"Starting validation for {test_path}")
                 test_stats = copy(param_dict)
 
                 early_stop_m = find_early_stopping_metric(metrics)
                 print("Reloading best model")
                 model.load_state_dict(early_stop_m.best_model)
-                validate_model(test_loader, model, epoch=epoch, epoch_stats=test_stats, metrics=metrics,
+                validate_model(test_loader, test_sets[i], model, epoch=epoch, epoch_stats=test_stats, metrics=metrics,
                                log_all_queries=True)
 
                 save_csv([test_stats], test_path)

@@ -131,11 +131,15 @@ def create_dataloader(workload_run_paths, test_workload_run_paths, statistics_fi
 
     # for each test workoad run create a distinct test loader
     test_loaders = None
+    test_sets = None
     if test_workload_run_paths is not None:
         test_loaders = []
+        test_sets = []
         for p in test_workload_run_paths:
             _, test_dataset, _, test_database_statistics = create_datasets([p], loss_class_name=loss_class_name,
                                                                            val_ratio=0.0, shuffle_before_split=False)
+            test_sets.append(test_dataset)
+
             # test dataset
             test_collate_fn = functools.partial(plan_collator, db_statistics=test_database_statistics,
                                                 feature_statistics=feature_statistics,
@@ -145,4 +149,4 @@ def create_dataloader(workload_run_paths, test_workload_run_paths, statistics_fi
             test_loader = DataLoader(test_dataset, **dataloader_args)
             test_loaders.append(test_loader)
 
-    return label_norm, feature_statistics, train_loader, val_loader, test_loaders
+    return label_norm, feature_statistics, train_loader, val_loader, test_loaders, test_sets

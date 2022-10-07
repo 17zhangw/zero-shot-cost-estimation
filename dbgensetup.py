@@ -49,7 +49,7 @@ workload_defs = {
 def compute(input):
     source, target, d, wl, parse_baseline, cap_queries = input
     no_plans, stats = parse_run(source, target, args.database, min_query_ms=args.min_query_ms, cap_queries=cap_queries,
-                                parse_baseline=parse_baseline, parse_join_conds=True)
+                                parse_baseline=parse_baseline, parse_join_conds=True, include_zero_card=args.include_zero_card)
     return dict(dataset=d, workload=wl, no_plans=no_plans, **stats)
 
 
@@ -79,6 +79,7 @@ if __name__ == '__main__':
     parser.add_argument('--database', default=DatabaseSystem.POSTGRES, type=DatabaseSystem,
                         choices=list(DatabaseSystem))
 
+    parser.add_argument('--include_zero_card', action='store_true')
     parser.add_argument('--generate_column_statistics', action='store_true')
     parser.add_argument('--generate_string_statistics', action='store_true')
     parser.add_argument('--download_relational_fit', action='store_true')
@@ -179,7 +180,7 @@ if __name__ == '__main__':
             for db in ext_database_list:
                 d = db.db_name
                 source = os.path.join(args.raw_dir, d, wl)
-                parse_baseline = not 'complex' in wl
+                parse_baseline = not 'complex' in wl and d != "tpcc"
                 if not os.path.exists(source):
                     print(f"Missing: {d}: {wl}")
                     continue

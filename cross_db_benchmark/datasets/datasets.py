@@ -77,7 +77,8 @@ database_list = [
     Database('genome', _data_folder='scaled_genome', scale=6),
     Database('carcinogenesis', _data_folder='scaled_carcinogenesis', scale=674),
     Database('seznam', _data_folder='scaled_seznam', scale=2),
-    Database('fhnk', _data_folder='scaled_fhnk', scale=2)
+    Database('fhnk', _data_folder='scaled_fhnk', scale=2),
+    Database('tpcc', max_no_joins=1),
 ]
 
 ext_database_list = database_list + [Database('imdb_full', _data_folder='imdb')]

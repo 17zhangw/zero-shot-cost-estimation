@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from pathlib import Path
 
@@ -181,9 +182,23 @@ class PostgresDatabaseConnection(DatabaseConnection):
         column_stats = self.transform_dicts(column_stats_names, column_stats_rows)
 
         # table stats
-        table_stats_names, table_stats_rows = self.get_result(
-            f"SELECT relname, reltuples, relpages from pg_class WHERE relkind = 'r';",
+        table_stats_names, orig_table_stats_rows = self.get_result(
+            f"SELECT relname, reltuples, relpages, reloptions from pg_class WHERE relkind = 'r';",
             include_column_names=True)
+
+        table_stats_rows = []
+        for row in orig_table_stats_rows:
+            if row[3] is None:
+                table_stats_rows.append((row[0], row[1], row[2], 100))
+            else:
+                ff = 100
+                for reloption in row[3]:
+                    for key, value in re.findall(r'(\w+)=(\w*)', reloption):
+                        if key == "fillfactor":
+                            # Fix fillfactor options.
+                            ff = int(value)
+                table_stats_rows.append((row[0], row[1], row[2], ff))
+
         table_stats = self.transform_dicts(table_stats_names, table_stats_rows)
         return dict(column_stats=column_stats, table_stats=table_stats)
 

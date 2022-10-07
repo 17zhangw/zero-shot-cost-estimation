@@ -3,6 +3,7 @@ from enum import Enum
 
 class DatabaseSystem(Enum):
     POSTGRES = 'postgres'
+    POSTGRES_CSV = 'postgres_csv'
 
     def __str__(self):
         return self.value
